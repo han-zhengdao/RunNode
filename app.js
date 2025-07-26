@@ -50,6 +50,16 @@ const userinfoRouter = require('./router/userinfo');
 // 使用路由模块
 app.use('/my', userinfoRouter);
 
+// 导入文章分类路由模块
+const artcateRouter = require('./router/artcate');
+// 使用路由模块
+app.use('/my/artcate', artcateRouter);
+
+// 导入文章路由模块
+const articleRouter = require('./router/article');
+// 使用路由模块
+app.use('/my/article', articleRouter);
+
 
 // 定义错误处理中间件
 app.use((err, req, res, next) => {
