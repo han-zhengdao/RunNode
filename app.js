@@ -60,6 +60,11 @@ const articleRouter = require('./router/article');
 // 使用路由模块
 app.use('/my/article', articleRouter);
 
+// 导入互动路由模块
+const interactionRouter = require('./router/interaction');
+// 使用路由模块
+app.use('/my/interaction', interactionRouter);
+
 
 // 定义错误处理中间件
 app.use((err, req, res, next) => {

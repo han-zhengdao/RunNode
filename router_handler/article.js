@@ -83,9 +83,10 @@ exports.getArticleList = (req, res) => {
         
         // 使用LEFT JOIN查询文章及其对应的图片，按创建时间倒序排列，并进行分页
         const sql = `
-            SELECT p.*, pi.image_url 
+            SELECT p.*, pi.image_url, u.nickname, u.avatar, u.level
             FROM posts p 
             LEFT JOIN post_images pi ON p.id = pi.post_id
+            LEFT JOIN users u ON p.user_id = u.id
             ORDER BY p.created_at DESC
             LIMIT ? OFFSET ?
         `
@@ -102,10 +103,18 @@ exports.getArticleList = (req, res) => {
                 if (!articlesMap[articleId]) {
                     articlesMap[articleId] = {
                         ...row,
-                        images: []
+                        images: [],
+                        user: {
+                            nickname: row.nickname,
+                            avatar: row.avatar,
+                            level: row.level
+                        }
                     }
-                    // 删除重复的image_url字段
+                    // 删除重复的字段
                     delete articlesMap[articleId].image_url
+                    delete articlesMap[articleId].nickname
+                    delete articlesMap[articleId].avatar
+                    delete articlesMap[articleId].level
                 }
                 
                 // 如果有图片，则添加到images数组中
