@@ -28,9 +28,12 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage })
 
+// 限制最大上传6张图片
+// 限制最大上传6张图片，字段名必须为pics
+const uploadMultiple = upload.array('pics', 6)
 
 // 发布新文章
-router.post('/add', upload.single('pic'), expressJoi(add_article_schema), article_handler.addArticle)
+router.post('/add', uploadMultiple, expressJoi(add_article_schema), article_handler.addArticle)
 
 // 获取文章列表
 router.get('/getlist', expressJoi(get_article_list_schema), article_handler.getArticleList)
