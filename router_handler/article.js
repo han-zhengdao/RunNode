@@ -100,7 +100,7 @@ exports.addArticle = async (req, res) => {
 
 // 获取文章列表
 exports.getArticleList = (req, res) => {
-    const { pagenum = 1, pagesize = 10, cate_id, state } = req.body
+    const { pageNum = 1, pageSize = 10, cate_id, state } = req.query
 
     // 准备查询条件
     let conditions = []
@@ -129,16 +129,18 @@ exports.getArticleList = (req, res) => {
         // 查询文章列表
         const sql = `
             SELECT p.*, c.name as cate_name, 
+                   u.nickname as user_nickname, u.avatar as user_avatar, u.level as user_level,
                    GROUP_CONCAT(pi.image_url) as image_urls
             FROM posts p
             LEFT JOIN categories c ON p.category_id = c.id
+            LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN post_images pi ON p.id = pi.post_id
             ${whereClause}
             GROUP BY p.id
             ORDER BY p.created_at DESC
             LIMIT ?, ?
         `
-        db.query(sql, [...values, (pagenum - 1) * pagesize, pagesize], (err, rows) => {
+        db.query(sql, [...values, (pageNum - 1) * pageSize, pageSize], (err, rows) => {
             if (err) return res.cc(err)
 
             // 处理图片URL
@@ -152,8 +154,8 @@ exports.getArticleList = (req, res) => {
                 message: '获取文章列表成功',
                 data: {
                     total,
-                    pagenum: +pagenum,
-                    pagesize: +pagesize,
+                    pagenum: +pageNum,
+                    pagesize: +pageSize,
                     articles
                 }
             })
