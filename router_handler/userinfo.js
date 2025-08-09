@@ -2,11 +2,12 @@
 const db = require('../db/index');
 
 // 获取用户信息的处理函数
-exports.getUserInfo = (req, res) => {
-    // 根据用户id查询用户信息
-    const sql = 'SELECT * FROM users WHERE id = ?';
-    db.query(sql, req.auth.id, (err, results) => {
-        if (err) return res.cc(err);
+exports.getUserInfo = async (req, res) => {
+    try {
+        // 根据用户id查询用户信息
+        const sql = 'SELECT * FROM users WHERE id = ?';
+        const [results] = await db.query(sql, [req.auth.id]);
+        
         if (results.length !== 1) return res.cc('获取用户信息失败！');
         const user = results[0];
         console.log('userssss:', user);
@@ -15,38 +16,45 @@ exports.getUserInfo = (req, res) => {
         res.send({
             status: 0,
             message: '获取用户信息成功',
-            data: results[0]
+            data: user
         });
-    });
+    } catch (err) {
+        res.cc(err);
+    }
 }
 
 // 积分变动与等级自动更新
-exports.changeUserPoints = (userId, change, reason, callback) => {
-    db.query('UPDATE users SET points = points + ? WHERE id = ?', [change, userId], (err) => {
-        if (err) {
-            console.error('积分更新失败:', err);
-            if (callback) callback(err);
-            return;
-        }
+exports.changeUserPoints = async (userId, change, reason, callback) => {
+    try {
+        await db.query('UPDATE users SET points = points + ? WHERE id = ?', [change, userId]);
+        
         // 插入积分日志
-        db.query(
-            'INSERT INTO points_log (user_id, points_change, reason) VALUES (?, ?, ?)',
-            [userId, change, reason],
-            (logErr) => {
-                if (logErr) console.error('积分日志插入失败:', logErr);
-                // 更新等级
-                updateUserLevel(userId, callback);
-            }
-        );
-    });
+        try {
+            await db.query(
+                'INSERT INTO points_log (user_id, points_change, reason) VALUES (?, ?, ?)',
+                [userId, change, reason]
+            );
+        } catch (logErr) {
+            console.error('积分日志插入失败:', logErr);
+        }
+        
+        // 更新等级
+        await updateUserLevel(userId, callback);
+    } catch (err) {
+        console.error('积分更新失败:', err);
+        if (callback) callback(err);
+    }
 };
 
-function updateUserLevel(userId, callback) {
-    db.query('SELECT points FROM users WHERE id = ?', [userId], (err, results) => {
-        if (err || results.length === 0) {
-            if (callback) callback(err || new Error('用户不存在'));
+const updateUserLevel = async (userId, callback) => {
+    try {
+        const [results] = await db.query('SELECT points FROM users WHERE id = ?', [userId]);
+        
+        if (results.length === 0) {
+            if (callback) callback(new Error('用户不存在'));
             return;
         }
+        
         const points = results[0].points;
         let level = 1;
         if (points > 1500) level = 6;
@@ -54,8 +62,14 @@ function updateUserLevel(userId, callback) {
         else if (points > 600) level = 4;
         else if (points > 300) level = 3;
         else if (points > 100) level = 2;
-        db.query('UPDATE users SET level = ? WHERE id = ?', [level, userId], callback);
-    });
+        
+        await db.query('UPDATE users SET level = ? WHERE id = ?', [level, userId]);
+        
+        if (callback) callback(null);
+    } catch (err) {
+        console.error('更新用户等级失败:', err);
+        if (callback) callback(err);
+    }
 }
 
 exports.decayUserPoints = () => {
@@ -77,17 +91,20 @@ function getLevelName(level) {
 }
 
 // 更新用户等级信息的处理函数
-exports.updateUserLevel = (req, res) => {
-    // 定义更新用户等级信息的sql语句
-    const sql = 'UPDATE users SET level = ? WHERE id = ?';
-    // 执行更新用户等级信息的sql语句
-    db.query(sql, [req.body.level, req.auth.id], (err, results) => {
-        if (err) return res.cc(err);
+exports.updateUserLevel = async (req, res) => {
+    try {
+        // 定义更新用户等级信息的sql语句
+        const sql = 'UPDATE users SET level = ? WHERE id = ?';
+        // 执行更新用户等级信息的sql语句
+        const [results] = await db.query(sql, [req.body.level, req.auth.id]);
+        
         if (results.affectedRows !== 1) return res.cc('更新用户等级信息失败！');
         res.send({
             status: 0,
             message: '更新用户等级信息成功！'
         })
-    })
+    } catch (err) {
+        res.cc(err);
+    }
 }
 

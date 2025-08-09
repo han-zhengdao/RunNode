@@ -33,7 +33,7 @@ const upload = multer({ storage: storage })
 const uploadMultiple = upload.array('pics', 6)
 
 // 发布新文章
-router.post('/add', uploadMultiple, expressJoi(add_article_schema), article_handler.addArticle)
+router.post('/add', expressJoi(add_article_schema), article_handler.addArticle)
 
 // 获取文章列表
 router.get('/getlist', expressJoi(get_article_list_schema), article_handler.getArticleList)

@@ -12,6 +12,13 @@ app.use(cors())
 app.use(express.json())
 app.use(express.urlencoded({ extended: false }))
 
+// 添加全局请求日志中间件
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    console.log('请求体:', req.body);
+    next();
+});
+
 // 托管静态资源
 app.use('/uploads', express.static('./uploads'))
 
@@ -36,8 +43,8 @@ const { expressjwt: expressJwt } = require('express-jwt')
 const config = require('./config')
 app.use(expressJwt({ secret: config.jwtSecretKey, algorithms: ['HS256'] }).unless({
     path: [
-        /^\/api/,
-        /^\/uploads/
+        /^\/api\//,
+        /^\/uploads\//
     ]
 }))
 

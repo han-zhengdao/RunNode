@@ -15,83 +15,51 @@ exports.addArticle = async (req, res) => {
         const postsDir = path.join(__dirname, '../uploads/posts')
         await fs.mkdir(postsDir, { recursive: true })
 
-        // 2.移动临时文件到正式目录
-        const movedFiles = []
-        if (tempImages && tempImages.length > 0) {
-            for (const tempPath of tempImages) {
-                // 从路径中提取文件名
-                const filename = path.basename(tempPath)
-                const oldPath = path.join(__dirname, '../uploads/temp', filename)
-                const newPath = path.join(postsDir, filename)
+        // 2.处理临时图片
+        let imageUrls = []
+        if (tempImages && Array.isArray(tempImages) && tempImages.length > 0) {
+            for (const tempImage of tempImages) {
+                const tempPath = path.join(__dirname, '..', 'uploads', 'temp', tempImage)
+                const finalPath = path.join(__dirname, '..', 'uploads', 'posts', tempImage)
                 
                 try {
-                    await fs.rename(oldPath, newPath)
-                    movedFiles.push(filename)
-                } catch (err) {
-                    console.error(`移动文件 ${filename} 时出错:`, err)
-                    // 如果文件移动失败，跳过该文件
-                    continue
+                    await fs.rename(tempPath, finalPath)
+                    imageUrls.push(`/uploads/posts/${tempImage}`)
+                } catch (moveError) {
+                    console.error('移动图片失败:', tempImage, moveError)
+                    // 如果移动失败，继续处理其他图片
                 }
             }
         }
 
-        // 3.准备要插入的数据
-        const articleData = {
-            user_id,
-            category_id: cate_id,
-            content,
-            like_count: 0,
-            comment_count: 0,
-            view_count: 0,
-            status: 1,
-            created_at: new Date()
-        }
 
-        // 4. 发布文章
-        const sql = 'INSERT INTO posts SET ?'
-        const [results] = await db.promise().query(sql, articleData)
+
+        // 3.插入文章数据
+        const sql = 'INSERT INTO posts SET user_id=?, category_id=?, content=?, like_count=0, comment_count=0, view_count=0, status=1'
+        const [results] = await db.query(sql, [user_id, cate_id, content])
         
-        if (results.affectedRows !== 1) {
-            return res.cc('发布文章失败')
-        }
-
-        // 获取插入的文章ID
         const article_id = results.insertId
 
-        // 如果有图片，插入图片记录
-        if (movedFiles.length > 0) {
-            const imageValues = movedFiles.map(filename => [
-                article_id,
-                filename,
-                new Date()
-            ])
-            
-            const imgSql = 'INSERT INTO post_images (post_id, image_url, created_at) VALUES ?'
-            const [imgResults] = await db.promise().query(imgSql, [imageValues])
-            
-            if (imgResults.affectedRows !== movedFiles.length) {
-                return res.cc('保存图片信息失败')
+        // 4.插入图片数据
+        if (imageUrls.length > 0) {
+            for (const imageUrl of imageUrls) {
+                const imageSql = 'INSERT INTO post_images SET post_id=?, image_url=?'
+                try {
+                    const [imageResults] = await db.query(imageSql, [article_id, imageUrl])
+                } catch (imageErr) {
+                    console.error('插入图片记录失败:', imageUrl, imageErr)
+                }
             }
-
-            // 获取所有图片的URL
-            const imageUrls = movedFiles.map(filename => `/uploads/posts/${filename}`)
-            res.send({
-                status: 0,
-                message: '发布文章成功',
-                data: {
-                    article_id,
-                    image_urls: imageUrls
-                }
-            })
-        } else {
-            res.send({
-                status: 0,
-                message: '发布文章成功',
-                data: {
-                    article_id
-                }
-            })
         }
+
+        res.send({
+            status: 0,
+            message: '发布文章成功',
+            data: {
+                article_id,
+                image_urls: imageUrls
+            }
+        })
     } catch (err) {
         console.error('发布文章时出错:', err)
         res.cc(err)
@@ -99,7 +67,7 @@ exports.addArticle = async (req, res) => {
 }
 
 // 获取文章列表
-exports.getArticleList = (req, res) => {
+exports.getArticleList = async (req, res) => {
     const { pageNum = 1, pageSize = 10, cate_id, state } = req.query
 
     // 准备查询条件
@@ -121,10 +89,11 @@ exports.getArticleList = (req, res) => {
     // 拼接where子句
     const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
 
-    // 查询文章总数
-    const countSql = `SELECT COUNT(*) as total FROM posts ${whereClause}`
-    db.query(countSql, values, (err, [{ total }]) => {
-        if (err) return res.cc(err)
+    try {
+        // 查询文章总数
+        const countSql = `SELECT COUNT(*) as total FROM posts ${whereClause}`
+        const [countResults] = await db.query(countSql, values)
+        const total = countResults[0].total
 
         // 查询文章列表
         const sql = `
@@ -140,25 +109,25 @@ exports.getArticleList = (req, res) => {
             ORDER BY p.created_at DESC
             LIMIT ?, ?
         `
-        db.query(sql, [...values, (pageNum - 1) * pageSize, pageSize], (err, rows) => {
-            if (err) return res.cc(err)
+        const [rows] = await db.query(sql, [...values, (pageNum - 1) * pageSize, pageSize])
 
-            // 处理图片URL
-            const articles = rows.map(row => ({
-                ...row,
-                image_urls: row.image_urls ? row.image_urls.split(',') : []
-            }))
+        // 处理图片URL
+        const articles = rows.map(row => ({
+            ...row,
+            image_urls: row.image_urls ? row.image_urls.split(',') : []
+        }))
 
-            res.send({
-                status: 0,
-                message: '获取文章列表成功',
-                data: {
-                    total,
-                    pagenum: +pageNum,
-                    pagesize: +pageSize,
-                    articles
-                }
-            })
+        res.send({
+            status: 0,
+            message: '获取文章列表成功',
+            data: {
+                total,
+                pagenum: +pageNum,
+                pagesize: +pageSize,
+                articles
+            }
         })
-    })
+    } catch (err) {
+        res.cc(err)
+    }
 }

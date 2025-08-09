@@ -11,89 +11,112 @@ const { changeUserPoints } = require('./userinfo');
 
 
 // 微信一键注册
-exports.register = (req, res) => {
+exports.register = async (req, res) => {
     // 接收请求体数据
     const { code, nickname, avatar } = req.body;
+    
+    // 验证必要参数
+    if (!code) {
+        return res.status(400).json({ status: 1, message: '缺少微信授权码' });
+    }
+    
     const appid = 'wx62bd77b42697a800';
     const secret = '384fd0c8341b262b36772f4ecc881d0e';
 
     // 请求微信 code2Session 接口
-    axios.get(`https://api.weixin.qq.com/sns/jscode2session?appid=${appid}&secret=${secret}&js_code=${code}&grant_type=authorization_code`)
-        .then(response => {
-            // 获取openid
-            const openid = response.data.openid;
-            
-            // 查询数据库中是否存在该用户
-            const sql = 'SELECT * FROM users WHERE openid = ?';
-            db.query(sql, [openid], (err, results) => {
-                if (err) return res.cc(err);
-                // 如果用户不存在，则插入新用户
+    const wechatApiUrl = `https://api.weixin.qq.com/sns/jscode2session?appid=${appid}&secret=${secret}&js_code=${code}&grant_type=authorization_code`;
+    
+    try {
+        const response = await axios.get(wechatApiUrl, { timeout: 10000 });
+        
+        // 检查微信API返回的错误
+        if (response.data.errcode) {
+            return res.status(400).json({ status: 1, message: `微信登录失败: ${response.data.errmsg}` });
+        }
+        
+        // 获取openid
+        const { openid } = response.data;
+        
+        if (!openid) {
+            return res.status(400).json({ status: 1, message: '微信登录失败，未获取到用户标识' });
+        }
+        
+        // 查询数据库中是否存在该用户
+        const sql = 'SELECT * FROM users WHERE openid = ?';
+        const [results] = await db.query(sql, [openid]);
+                
                 if (results.length === 0) {
-                    const insertSql = 'INSERT INTO users (openid, nickname, avatar) VALUES (?, ?, ?)';
-                    db.query(insertSql, [openid, nickname, avatar], (err, results) => {
-                        if (err) return res.cc(err);
-                        // 返回注册成功信息
-                        // 生成token
-                        // const id = results[0].id;
-                        const id = results.insertId;
-                        console.log('idddddd:', id);
+                    // 用户不存在，进行注册
+                    const insertSql = 'INSERT INTO users (openid, nickname, avatar, points, level) VALUES (?, ?, ?, 100, 1)';
+                    const [insertResults] = await db.query(insertSql, [openid, nickname || '微信用户', avatar || '']);
+                    
+                    const userId = insertResults.insertId;
+                    
+                    // 生成token
+                    const tokenStr = jwt.sign({ id: userId, openid }, config.jwtSecretKey, { expiresIn: config.expiresIn });
+                    const refreshTokenStr = jwt.sign({ id: userId, openid }, config.jwtSecretKey, { expiresIn: '7d' });
+                    
+                    // 新用户注册奖励积分
+                    changeUserPoints(userId, 50, '新用户注册奖励', (pointsErr) => {
+                        if (pointsErr) {
+                            console.error('积分奖励失败:', pointsErr);
+                        }
                         
-                        const userInfo = { id, openid, nickname, avatar };
-                        const token = jwt.sign(userInfo, config.jwtSecretKey, { expiresIn: config.expiresIn });
-                        // 生成refreshToken
-                        const refreshToken = jwt.sign(userInfo, config.jwtSecretKey, { expiresIn: config.refreshExpiresIn });
-                        console.log('token:', token);
-                        
-                        changeUserPoints(id, 5, '每日上线',  () => {
-                            
-                            res.send({
-                                status: 0,
-                                message: '注册成功',
-                                data: { nickname, avatar, token, refreshToken }
-                            })
-                        })
-                        
+                        res.json({
+                            status: 0,
+                            message: '注册成功',
+                            token: 'Bearer ' + tokenStr,
+                            refreshToken: refreshTokenStr,
+                            user: {
+                                id: userId,
+                                openid,
+                                nickname: nickname || '微信用户',
+                                avatar: avatar || '',
+                                points: 150, // 100初始积分 + 50奖励积分
+                                level: 1
+                            }
+                        });
                     });
                 } else {
-                    // 如果用户已存在，更新他们的昵称和头像
-                    const updateSql = 'UPDATE users SET nickname = ?, avatar = ? WHERE openid = ?';
-                    db.query(updateSql, [nickname, avatar, openid], (updateErr, updateResults) => {
-                        if (updateErr) return res.cc(updateErr);
-
-                        // 用户信息已更新，现在用【新的】信息生成 token 并返回
-                        const id = results[0].id;
-                        const userInfo = { id, openid, nickname, avatar }; // 使用来自 req.body 的新数据
-                        const token = jwt.sign(userInfo, config.jwtSecretKey, { expiresIn: config.expiresIn });
-                        const refreshToken = jwt.sign(userInfo, config.jwtSecretKey, { expiresIn: config.refreshExpiresIn });
-                        console.log('token:', token);
-                        // 登录成功后，给用户加每日上线积分
-                        changeUserPoints(id, 5, '每日上线',  () => {
-                            
-                            res.send({
-                                status: 0,
-                                message: '登录成功',
-                                data: { nickname, avatar, token, refreshToken }
-                            })
-                        })  
+                    // 用户已存在，直接登录
+                    const user = results[0];
+                    
+                    // 生成token
+                    const tokenStr = jwt.sign({ id: user.id, openid }, config.jwtSecretKey, { expiresIn: config.expiresIn });
+                    const refreshTokenStr = jwt.sign({ id: user.id, openid }, config.jwtSecretKey, { expiresIn: '7d' });
+                    
+                    // 登录奖励积分
+                    changeUserPoints(user.id, 10, '每日登录奖励', (pointsErr) => {
+                        if (pointsErr) {
+                            console.error('积分奖励失败:', pointsErr);
+                        }
+                        
+                        res.json({
+                            status: 0,
+                            message: '登录成功',
+                            token: 'Bearer ' + tokenStr,
+                            refreshToken: refreshTokenStr,
+                            user: {
+                                id: user.id,
+                                openid: user.openid,
+                                nickname: user.nickname,
+                                avatar: user.avatar,
+                                points: user.points + 10,
+                                level: user.level
+                            }
+                        });
                     });
                 }
-            });
-        })
-        .catch(err => {
-            // 打印完整的错误对象，这非常重要！
-        if (err.response) {
-            // 如果是 HTTP 错误（比如 4xx, 5xx），打印响应体
-            console.error('微信接口请求失败 - 响应数据:', err.response.data);
-            console.error('微信接口请求失败 - 响应状态:', err.response.status);
-        } else if (err.request) {
-            // 如果是请求已发出但没有收到响应
-            console.error('微信接口请求无响应:', err.request);
-        } else {
-            // 如果是请求设置时出错
-            console.error('Axios 请求设置错误:', err.message);
+    } catch (error) {
+        console.error('微信登录过程中出错:', error);
+        if (error.code === 'ECONNABORTED') {
+            return res.status(408).json({ status: 1, message: '微信登录超时，请重试' });
         }
-            res.cc('微信登录失败，请稍后再试！');
-        });
+        if (error.response) {
+            return res.status(500).json({ status: 1, message: '微信API请求失败' });
+        }
+        return res.status(500).json({ status: 1, message: '数据库操作失败，请重试' });
+    }
 };
 
 // 刷新token

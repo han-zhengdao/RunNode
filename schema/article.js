@@ -7,6 +7,8 @@ const content = joi.string().required().min(1).max(10000)
 const cate_id = joi.number().integer().required()
 // 定义文章图片数组（可选）
 const pics = joi.array().items(joi.any()).optional()
+// 定义临时图片文件名数组（可选）
+const tempImages = joi.array().items(joi.string()).optional()
 
 // 定义分页参数的验证规则
 const pageNum = joi.number().integer().min(1).default(1)
@@ -17,7 +19,8 @@ exports.add_article_schema = {
     body: {
         content,
         cate_id,
-        pics
+        pics,
+        tempImages
     }
 }
 

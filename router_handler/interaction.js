@@ -2,51 +2,45 @@
 const db = require('../db/index')
 
 
-exports.likeArticle = (req, res) => {
+exports.likeArticle = async (req, res) => {
   const { articleId } = req.body
-  // 检查用户是否已经点赞过该帖子
-  // 如果没有点赞，则添加一条点赞记录
-  db.query('SELECT * FROM likes WHERE user_id = ? AND post_id = ?', [req.auth.id, articleId], (err, results) => {
-    if (err) return res.cc(err)
+  
+  try {
+    // 检查用户是否已经点赞过该帖子
+    const [results] = await db.query('SELECT * FROM likes WHERE user_id = ? AND post_id = ?', [req.auth.id, articleId])
+    
     if (results.length > 0) {
       // 如果已经点赞，则执行取消点赞（删除记录）
-      db.query('DELETE FROM likes WHERE user_id = ? AND post_id = ?', [req.auth.id, articleId], (err, results) => {
-        if (err) return res.cc(err)
-        // 更新帖子点赞计数
-        db.query('UPDATE posts SET like_count = like_count - 1 WHERE id = ?', [articleId], (err) => {
-          if (err) return res.cc(err)
-          res.send({
-            status: 0,
-            message: '取消点赞成功',
-            data: {
-              articleId,
-              isLiked: false,
-              likeCount: results.like_count
-            }
-          })
-
-        })
+      await db.query('DELETE FROM likes WHERE user_id = ? AND post_id = ?', [req.auth.id, articleId])
+      // 更新帖子点赞计数
+      await db.query('UPDATE posts SET like_count = like_count - 1 WHERE id = ?', [articleId])
+      
+      res.send({
+        status: 0,
+        message: '取消点赞成功',
+        data: {
+          articleId,
+          isLiked: false
+        }
       })
     } else {
-      db.query('INSERT INTO likes (user_id, post_id) VALUES (?, ?)', [req.auth.id, articleId], (err, results) => {
-        if (err) return res.cc(err)
-        // 更新帖子点赞计数
-        db.query('UPDATE posts SET like_count = like_count + 1 WHERE id = ?', [articleId], (err) => {
-          if (err) return res.cc(err)
-          res.send({
-            status: 0,
-            message: '点赞成功',
-            data: {
-              articleId,
-              isLiked: true,
-              likeCount: results.like_count
-            }
-          })
-        })
+      // 添加点赞记录
+      await db.query('INSERT INTO likes (user_id, post_id) VALUES (?, ?)', [req.auth.id, articleId])
+      // 更新帖子点赞计数
+      await db.query('UPDATE posts SET like_count = like_count + 1 WHERE id = ?', [articleId])
+      
+      res.send({
+        status: 0,
+        message: '点赞成功',
+        data: {
+          articleId,
+          isLiked: true
+        }
       })
     }
-  })
-
+  } catch (err) {
+    res.cc(err)
+  }
 }
 
 exports.followUser = (req, res) => {
