@@ -109,13 +109,36 @@ exports.register = async (req, res) => {
                 }
     } catch (error) {
         console.error('微信登录过程中出错:', error);
+        console.error('错误详情:', {
+            message: error.message,
+            code: error.code,
+            errno: error.errno,
+            sqlState: error.sqlState,
+            sqlMessage: error.sqlMessage
+        });
+        
         if (error.code === 'ECONNABORTED') {
             return res.status(408).json({ status: 1, message: '微信登录超时，请重试' });
         }
         if (error.response) {
             return res.status(500).json({ status: 1, message: '微信API请求失败' });
         }
-        return res.status(500).json({ status: 1, message: '数据库操作失败，请重试' });
+        
+        // 数据库相关错误的详细处理
+        if (error.code === 'ER_NO_SUCH_TABLE') {
+            return res.status(500).json({ status: 1, message: '数据库表不存在，请检查数据库配置' });
+        }
+        if (error.code === 'ECONNREFUSED') {
+            return res.status(500).json({ status: 1, message: '数据库连接被拒绝，请检查数据库服务' });
+        }
+        if (error.code === 'ER_ACCESS_DENIED_ERROR') {
+            return res.status(500).json({ status: 1, message: '数据库访问权限不足' });
+        }
+        
+        return res.status(500).json({ 
+            status: 1, 
+            message: `数据库操作失败：${error.message || '未知错误'}，请重试` 
+        });
     }
 };
 

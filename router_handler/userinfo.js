@@ -26,31 +26,44 @@ exports.getUserInfo = async (req, res) => {
 // 积分变动与等级自动更新
 exports.changeUserPoints = async (userId, change, reason, callback) => {
     try {
-        await db.query('UPDATE users SET points = points + ? WHERE id = ?', [change, userId]);
+        console.log(`开始更新用户${userId}的积分，变动：${change}，原因：${reason}`);
         
-        // 插入积分日志
+        // 更新用户积分
+        const [updateResult] = await db.query('UPDATE users SET points = points + ? WHERE id = ?', [change, userId]);
+        console.log('积分更新结果:', updateResult);
+        
+        // 插入积分日志（可选，如果表不存在则跳过）
         try {
             await db.query(
                 'INSERT INTO points_log (user_id, points_change, reason) VALUES (?, ?, ?)',
                 [userId, change, reason]
             );
+            console.log('积分日志插入成功');
         } catch (logErr) {
-            console.error('积分日志插入失败:', logErr);
+            console.error('积分日志插入失败（可能是表不存在）:', logErr.message);
+            // 不阻断主流程，继续执行
         }
         
         // 更新等级
         await updateUserLevel(userId, callback);
     } catch (err) {
-        console.error('积分更新失败:', err);
+        console.error('积分更新失败:', {
+            message: err.message,
+            code: err.code,
+            errno: err.errno,
+            sqlState: err.sqlState
+        });
         if (callback) callback(err);
     }
 };
 
 const updateUserLevel = async (userId, callback) => {
     try {
+        console.log(`开始更新用户${userId}的等级`);
         const [results] = await db.query('SELECT points FROM users WHERE id = ?', [userId]);
         
         if (results.length === 0) {
+            console.error(`用户${userId}不存在`);
             if (callback) callback(new Error('用户不存在'));
             return;
         }
@@ -63,11 +76,20 @@ const updateUserLevel = async (userId, callback) => {
         else if (points > 300) level = 3;
         else if (points > 100) level = 2;
         
-        await db.query('UPDATE users SET level = ? WHERE id = ?', [level, userId]);
+        console.log(`用户${userId}积分：${points}，计算等级：${level}`);
+        
+        const [updateResult] = await db.query('UPDATE users SET level = ? WHERE id = ?', [level, userId]);
+        console.log(`用户${userId}等级更新成功:`, updateResult);
         
         if (callback) callback(null);
     } catch (err) {
-        console.error('更新用户等级失败:', err);
+        console.error('更新用户等级失败:', {
+            userId,
+            message: err.message,
+            code: err.code,
+            errno: err.errno,
+            sqlState: err.sqlState
+        });
         if (callback) callback(err);
     }
 }
