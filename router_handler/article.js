@@ -69,6 +69,10 @@ exports.addArticle = async (req, res) => {
 // 获取文章列表
 exports.getArticleList = async (req, res) => {
     const { pageNum = 1, pageSize = 10, cate_id, state } = req.query
+    
+    // 确保分页参数是数字类型
+    const page = parseInt(pageNum) || 1
+    const size = parseInt(pageSize) || 10
 
     // 准备查询条件
     let conditions = []
@@ -76,13 +80,13 @@ exports.getArticleList = async (req, res) => {
 
     // 如果有分类id，添加到查询条件
     if (cate_id) {
-        conditions.push('category_id = ?')
+        conditions.push('p.category_id = ?')
         values.push(cate_id)
     }
 
     // 如果有状态，添加到查询条件
     if (state) {
-        conditions.push('status = ?')
+        conditions.push('p.status = ?')
         values.push(state)
     }
 
@@ -91,7 +95,7 @@ exports.getArticleList = async (req, res) => {
 
     try {
         // 查询文章总数
-        const countSql = `SELECT COUNT(*) as total FROM posts ${whereClause}`
+        const countSql = `SELECT COUNT(*) as total FROM posts p ${whereClause}`
         const [countResults] = await db.query(countSql, values)
         const total = countResults[0].total
 
@@ -109,7 +113,7 @@ exports.getArticleList = async (req, res) => {
             ORDER BY p.created_at DESC
             LIMIT ?, ?
         `
-        const [rows] = await db.query(sql, [...values, (pageNum - 1) * pageSize, pageSize])
+        const [rows] = await db.query(sql, [...values, (page - 1) * size, size])
 
         // 处理图片URL
         const articles = rows.map(row => ({
@@ -122,12 +126,70 @@ exports.getArticleList = async (req, res) => {
             message: '获取文章列表成功',
             data: {
                 total,
-                pagenum: +pageNum,
-                pagesize: +pageSize,
+                pagenum: page,
+                pagesize: size,
                 articles
             }
         })
     } catch (err) {
         res.cc(err)
+    }
+}
+
+// 获取文章详情
+exports.getArticleDetail = async (req, res) => {
+    try {
+        const { id } = req.params
+        
+        // 查询文章详情，包含用户信息和图片
+        const sql = `
+            SELECT 
+                p.id,
+                p.content,
+                p.category_id,
+                p.created_at,
+                p.like_count,
+                p.comment_count,
+                p.view_count,
+                p.status,
+                u.nickname,
+                u.avatar,
+                u.id as user_id,
+                u.level,
+                c.name as cate_name,
+                GROUP_CONCAT(pi.image_url) as image_urls
+            FROM posts p
+            LEFT JOIN users u ON p.user_id = u.id
+            LEFT JOIN categories c ON p.category_id = c.id
+            LEFT JOIN post_images pi ON p.id = pi.post_id
+            WHERE p.id = ?
+            GROUP BY p.id
+        `
+        
+        const [articles] = await db.query(sql, [id])
+        
+        if (articles.length === 0) {
+            return res.send({
+                status: 1,
+                message: '文章不存在'
+            })
+        }
+        
+        const article = articles[0]
+        
+        // 处理图片数据
+        const processedArticle = {
+            ...article,
+            image_urls: article.image_urls ? article.image_urls.split(',') : []
+        }
+        
+        res.send({
+            status: 0,
+            message: '获取文章详情成功',
+            data: processedArticle
+        })
+    } catch (error) {
+        console.error('获取文章详情失败:', error)
+        res.cc(error)
     }
 }

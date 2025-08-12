@@ -13,6 +13,8 @@ const tempImages = joi.array().items(joi.string()).optional()
 // 定义分页参数的验证规则
 const pageNum = joi.number().integer().min(1).default(1)
 const pageSize = joi.number().integer().min(1).max(100).default(10)
+// 定义文章id的验证规则
+const id = joi.number().integer().min(1).required()
 
 // 定义发布文章的数据验证模块
 exports.add_article_schema = {
@@ -28,7 +30,16 @@ exports.add_article_schema = {
 exports.get_article_list_schema = {
     query: {
         pageNum,
-        pageSize
+        pageSize,
+        cate_id: joi.number().integer().min(1).optional(),
+        state: joi.number().integer().valid(0, 1).optional()
+    }
+}
+
+// 定义获取文章详情的数据验证模块
+exports.get_article_detail_schema = {
+    params: {
+        id
     }
 }
 
