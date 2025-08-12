@@ -6,8 +6,7 @@ const db = mysql.createPool({
     host: '127.0.0.1',
     user: 'root',
     password: '123456',
-    // database: 'rundb'
-    database: 'rundata'
+    database: 'rundb'
 })
 
 // 向外共享db数据库连接对象

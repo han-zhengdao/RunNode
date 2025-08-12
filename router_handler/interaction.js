@@ -64,6 +64,9 @@ exports.createReply = async (req, res) => {
     // 更新评论的回复数（如果comments表有reply_count字段）
     await db.query('UPDATE comments SET reply_count = reply_count + 1 WHERE id = ?', [commentId])
     
+    // 更新文章的评论总数（包含回复）
+    await db.query('UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?', [post_id])
+    
     res.send({
       status: 0,
       message: '回复成功',
@@ -282,14 +285,19 @@ exports.getComments = async (req, res) => {
       return res.cc('文章不存在')
     }
     
-    // 查询评论总数
-    const [countResults] = await db.query('SELECT COUNT(*) as total FROM comments WHERE post_id = ?', [articleId])
+    // 查询评论总数（包含回复数）
+    const [countResults] = await db.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM comments WHERE post_id = ?) + 
+        (SELECT COUNT(*) FROM comment_replies WHERE post_id = ?) as total
+    `, [articleId, articleId])
     const total = countResults[0].total
     
     // 查询评论列表
     const sql = `
       SELECT c.*, u.nickname, u.avatar, u.level,
-             (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = ?) as is_liked
+             (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = ?) as is_liked,
+             (SELECT COUNT(*) FROM comment_replies cr WHERE cr.comment_id = c.id) as reply_count
       FROM comments c
       LEFT JOIN users u ON c.user_id = u.id
       WHERE c.post_id = ?
@@ -303,6 +311,7 @@ exports.getComments = async (req, res) => {
       id: comment.id,
       content: comment.content,
       like_count: comment.like_count,
+      reply_count: comment.reply_count,
       is_liked: comment.is_liked > 0,
       created_at: comment.created_at,
       user: {
