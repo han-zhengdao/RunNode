@@ -69,6 +69,7 @@ exports.addArticle = async (req, res) => {
 // 获取文章列表
 exports.getArticleList = async (req, res) => {
     const { pageNum = 1, pageSize = 10, cate_id, state } = req.query
+    const currentUserId = req.auth ? req.auth.id : null // 获取当前登录用户ID，如果未登录则为null
     
     // 确保分页参数是数字类型
     const page = parseInt(pageNum) || 1
@@ -101,19 +102,25 @@ exports.getArticleList = async (req, res) => {
 
         // 查询文章列表
         const sql = `
-            SELECT p.*, c.name as cate_name, 
-                   u.nickname as user_nickname, u.avatar as user_avatar, u.level as user_level,
-                   GROUP_CONCAT(pi.image_url) as image_urls
+            SELECT 
+                p.*, 
+                c.name as cate_name, 
+                u.nickname as user_nickname, 
+                u.avatar as user_avatar, 
+                u.level as user_level,
+                GROUP_CONCAT(pi.image_url) as image_urls,
+                CASE WHEN l.id IS NOT NULL THEN 1 ELSE 0 END as is_liked
             FROM posts p
             LEFT JOIN categories c ON p.category_id = c.id
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN post_images pi ON p.id = pi.post_id
+            LEFT JOIN likes l ON p.id = l.post_id AND l.user_id = ?
             ${whereClause}
             GROUP BY p.id
             ORDER BY p.created_at DESC
             LIMIT ?, ?
         `
-        const [rows] = await db.query(sql, [...values, (page - 1) * size, size])
+        const [rows] = await db.query(sql, [currentUserId, ...values, (page - 1) * size, size])
 
         // 处理图片URL
         const articles = rows.map(row => ({
@@ -140,6 +147,7 @@ exports.getArticleList = async (req, res) => {
 exports.getArticleDetail = async (req, res) => {
     try {
         const { id } = req.params
+        const currentUserId = req.auth ? req.auth.id : null // 获取当前登录用户ID，如果未登录则为null
         
         // 查询文章详情，包含用户信息和图片
         const sql = `
@@ -177,10 +185,18 @@ exports.getArticleDetail = async (req, res) => {
         
         const article = articles[0]
         
+        // 查询当前用户是否点赞了该文章
+        let isLiked = false
+        if (currentUserId) {
+            const [likeResults] = await db.query('SELECT id FROM likes WHERE user_id = ? AND post_id = ?', [currentUserId, id])
+            isLiked = likeResults.length > 0
+        }
+        
         // 处理图片数据
         const processedArticle = {
             ...article,
-            image_urls: article.image_urls ? article.image_urls.split(',') : []
+            image_urls: article.image_urls ? article.image_urls.split(',') : [],
+            is_liked: isLiked // 添加is_liked字段
         }
         
         res.send({

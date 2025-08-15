@@ -80,6 +80,29 @@ const get_follow_status_schema = {
   }
 }
 
+// 增加浏览量的验证规则
+const increase_view_count_schema = {
+  params: {
+    articleId: joi.number().integer().min(1).required()
+  }
+}
+
+// 点赞文章的验证规则
+const like_article_schema = {
+  body: {
+    articleId: joi.number().integer().min(1).required()
+  }
+}
+
+// 举报投诉的验证规则对象
+const report_schema = {
+  body: {
+    target_type: joi.number().integer().valid(1, 2, 3).required(), // 1-帖子，2-评论，3-回复
+    target_id: joi.number().integer().min(1).required(),
+    reason: joi.string().valid(1, 2, 3).required() // 1-内容违规，2-垃圾信息，3-其他
+  }
+}
+
 module.exports = {
   create_comment_schema,
   get_comments_schema,
@@ -87,8 +110,11 @@ module.exports = {
   create_reply_schema,
   get_replies_schema,
   like_reply_schema,
+  increase_view_count_schema,
+  like_article_schema,
   follow_user_schema,
   get_following_schema,
   get_followers_schema,
-  get_follow_status_schema
+  get_follow_status_schema,
+  report_schema
 }

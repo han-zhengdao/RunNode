@@ -22,10 +22,13 @@ CREATE TABLE reply_likes (
   id INT AUTO_INCREMENT PRIMARY KEY,
   reply_id INT NOT NULL COMMENT '回复ID',
   user_id INT NOT NULL COMMENT '点赞用户ID',
+  status TINYINT DEFAULT 1 COMMENT '点赞状态：1-点赞，0-取消点赞',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '点赞时间',
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   UNIQUE KEY uk_reply_user (reply_id, user_id) COMMENT '同一用户对同一回复只能点赞一次',
   INDEX idx_reply_id (reply_id),
   INDEX idx_user_id (user_id),
+  INDEX idx_status (status),
   FOREIGN KEY (reply_id) REFERENCES comment_replies(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='回复点赞表';

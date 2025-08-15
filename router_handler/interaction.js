@@ -6,14 +6,14 @@ exports.likeArticle = async (req, res) => {
   const { articleId } = req.body
   
   try {
-    // 检查用户是否已经点赞过该帖子
-    const [results] = await db.query('SELECT * FROM likes WHERE user_id = ? AND post_id = ?', [req.auth.id, articleId])
+    // 检查用户是否已经点赞过该帖子 (status = 1)
+    const [results] = await db.query('SELECT * FROM likes WHERE user_id = ? AND post_id = ? AND status = 1', [req.auth.id, articleId])
     
     if (results.length > 0) {
-      // 如果已经点赞，则执行取消点赞（删除记录）
-      await db.query('DELETE FROM likes WHERE user_id = ? AND post_id = ?', [req.auth.id, articleId])
-      // 更新帖子点赞计数
-      await db.query('UPDATE posts SET like_count = like_count - 1 WHERE id = ?', [articleId])
+      // 如果已经点赞，则执行取消点赞（逻辑删除）
+      await db.query('UPDATE likes SET status = 0, updated_at = NOW() WHERE user_id = ? AND post_id = ?', [req.auth.id, articleId])
+      // 更新帖子点赞计数（确保不会小于0）
+      await db.query('UPDATE posts SET like_count = GREATEST(like_count - 1, 0) WHERE id = ?', [articleId])
       
       res.send({
         status: 0,
@@ -24,8 +24,15 @@ exports.likeArticle = async (req, res) => {
         }
       })
     } else {
-      // 添加点赞记录
-      await db.query('INSERT INTO likes (user_id, post_id) VALUES (?, ?)', [req.auth.id, articleId])
+      // 检查是否存在逻辑删除的记录
+      const [deletedResults] = await db.query('SELECT id FROM likes WHERE user_id = ? AND post_id = ? AND status = 0', [req.auth.id, articleId])
+      if (deletedResults.length > 0) {
+        // 如果存在逻辑删除的记录，则恢复点赞（更新状态）
+        await db.query('UPDATE likes SET status = 1, updated_at = NOW() WHERE user_id = ? AND post_id = ?', [req.auth.id, articleId])
+      } else {
+        // 否则，添加新的点赞记录
+        await db.query('INSERT INTO likes (user_id, post_id, status) VALUES (?, ?, 1)', [req.auth.id, articleId])
+      }
       // 更新帖子点赞计数
       await db.query('UPDATE posts SET like_count = like_count + 1 WHERE id = ?', [articleId])
       
@@ -257,7 +264,7 @@ exports.getReplies = async (req, res) => {
     // 查询回复列表
     const sql = `
       SELECT r.*, u.nickname, u.avatar, u.level,
-             (SELECT COUNT(*) FROM reply_likes rl WHERE rl.reply_id = r.id AND rl.user_id = ?) as is_liked
+             (SELECT COUNT(*) FROM reply_likes rl WHERE rl.reply_id = r.id AND rl.user_id = ? AND rl.status = 1) as is_liked
       FROM comment_replies r
       LEFT JOIN users u ON r.user_id = u.id
       WHERE r.comment_id = ?
@@ -308,13 +315,14 @@ exports.likeReply = async (req, res) => {
       return res.cc('回复不存在')
     }
     
-    // 检查是否已经点赞
-    const [likeResults] = await db.query('SELECT id FROM reply_likes WHERE reply_id = ? AND user_id = ?', [replyId, user_id])
+    // 检查是否已经点赞 (status = 1)
+    const [likeResults] = await db.query('SELECT id FROM reply_likes WHERE reply_id = ? AND user_id = ? AND status = 1', [replyId, user_id])
     
     if (likeResults.length > 0) {
-      // 已点赞，执行取消点赞
-      await db.query('DELETE FROM reply_likes WHERE reply_id = ? AND user_id = ?', [replyId, user_id])
-      await db.query('UPDATE comment_replies SET like_count = like_count - 1 WHERE id = ?', [replyId])
+      // 已点赞，执行取消点赞（逻辑删除）
+      await db.query('UPDATE reply_likes SET status = 0, updated_at = NOW() WHERE reply_id = ? AND user_id = ?', [replyId, user_id])
+      // 更新回复点赞计数（确保不会小于0）
+      await db.query('UPDATE comment_replies SET like_count = GREATEST(like_count - 1, 0) WHERE id = ?', [replyId])
       
       res.send({
         status: 0,
@@ -322,8 +330,15 @@ exports.likeReply = async (req, res) => {
         data: { isLiked: false }
       })
     } else {
-      // 未点赞，执行点赞
-      await db.query('INSERT INTO reply_likes (reply_id, user_id, created_at) VALUES (?, ?, NOW())', [replyId, user_id])
+      // 检查是否存在逻辑删除的记录
+      const [deletedResults] = await db.query('SELECT id FROM reply_likes WHERE reply_id = ? AND user_id = ? AND status = 0', [replyId, user_id])
+      if (deletedResults.length > 0) {
+        // 如果存在逻辑删除的记录，则恢复点赞（更新状态）
+        await db.query('UPDATE reply_likes SET status = 1, updated_at = NOW() WHERE reply_id = ? AND user_id = ?', [replyId, user_id])
+      } else {
+        // 否则，添加新的点赞记录
+        await db.query('INSERT INTO reply_likes (reply_id, user_id, status) VALUES (?, ?, 1)', [replyId, user_id])
+      }
       await db.query('UPDATE comment_replies SET like_count = like_count + 1 WHERE id = ?', [replyId])
       
       res.send({
@@ -396,14 +411,14 @@ exports.likeComment = async (req, res) => {
   const { commentId } = req.body
   
   try {
-    // 检查用户是否已经点赞过该评论
-    const [results] = await db.query('SELECT * FROM comment_likes WHERE user_id = ? AND comment_id = ?', [req.auth.id, commentId])
+    // 检查用户是否已经点赞过该评论 (status = 1)
+    const [results] = await db.query('SELECT * FROM comment_likes WHERE user_id = ? AND comment_id = ? AND status = 1', [req.auth.id, commentId])
     
     if (results.length > 0) {
-      // 如果已经点赞，则执行取消点赞（删除记录）
-      await db.query('DELETE FROM comment_likes WHERE user_id = ? AND comment_id = ?', [req.auth.id, commentId])
-      // 更新评论点赞计数
-      await db.query('UPDATE comments SET like_count = like_count - 1 WHERE id = ?', [commentId])
+      // 如果已经点赞，则执行取消点赞（逻辑删除）
+      await db.query('UPDATE comment_likes SET status = 0, updated_at = NOW() WHERE user_id = ? AND comment_id = ?', [req.auth.id, commentId])
+      // 更新评论点赞计数（确保不会小于0）
+      await db.query('UPDATE comments SET like_count = GREATEST(like_count - 1, 0) WHERE id = ?', [commentId])
       
       res.send({
         status: 0,
@@ -414,8 +429,15 @@ exports.likeComment = async (req, res) => {
         }
       })
     } else {
-      // 添加点赞记录
-      await db.query('INSERT INTO comment_likes (user_id, comment_id) VALUES (?, ?)', [req.auth.id, commentId])
+      // 检查是否存在逻辑删除的记录
+      const [deletedResults] = await db.query('SELECT id FROM comment_likes WHERE user_id = ? AND comment_id = ? AND status = 0', [req.auth.id, commentId])
+      if (deletedResults.length > 0) {
+        // 如果存在逻辑删除的记录，则恢复点赞（更新状态）
+        await db.query('UPDATE comment_likes SET status = 1, updated_at = NOW() WHERE user_id = ? AND comment_id = ?', [req.auth.id, commentId])
+      } else {
+        // 否则，添加新的点赞记录
+        await db.query('INSERT INTO comment_likes (user_id, comment_id, status) VALUES (?, ?, 1)', [req.auth.id, commentId])
+      }
       // 更新评论点赞计数
       await db.query('UPDATE comments SET like_count = like_count + 1 WHERE id = ?', [commentId])
       
@@ -493,7 +515,7 @@ exports.getComments = async (req, res) => {
     // 查询评论列表
     const sql = `
       SELECT c.*, u.nickname, u.avatar, u.level,
-             (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = ?) as is_liked,
+             (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = ? AND cl.status = 1) as is_liked,
              (SELECT COUNT(*) FROM comment_replies cr WHERE cr.comment_id = c.id) as reply_count
       FROM comments c
       LEFT JOIN users u ON c.user_id = u.id
@@ -528,6 +550,54 @@ exports.getComments = async (req, res) => {
         pagesize: size,
         list: commentList
       }
+    })
+  } catch (err) {
+    res.cc(err)
+  }
+}
+
+// 举报投诉
+exports.report = async (req, res) => {
+  const { target_type, target_id, reason } = req.body
+  const reporter_id = req.auth.id
+
+  try {
+    // 检查是否已存在该用户对该对象的举报记录
+    const [existingReports] = await db.query('SELECT id FROM reports WHERE reporter_id = ? AND target_type = ? AND target_id = ?', [reporter_id, target_type, target_id])
+
+    if (existingReports.length > 0) {
+      return res.cc('您已举报过该内容，请勿重复举报！')
+    }
+
+    const sql = 'INSERT INTO reports (reporter_id, target_type, target_id, reason) VALUES (?, ?, ?, ?)'
+    const [results] = await db.query(sql, [reporter_id, target_type, target_id, reason])
+
+    if (results.affectedRows === 1) {
+      res.send({
+        status: 0,
+        message: '举报成功'
+      })
+    } else {
+      res.cc('举报失败')
+    }
+  } catch (err) {
+    res.cc(err)
+  }
+}
+
+// 增加帖子浏览量
+// 1. 进入视口
+// 2. 点击进入详情
+exports.increaseViewCount = async (req, res) => {
+  const { articleId } = req.params
+  
+  try {
+    // 更新帖子浏览量
+    await db.query('UPDATE posts SET view_count = view_count + 1 WHERE id = ?', [articleId])
+    
+    res.send({
+      status: 0,
+      message: '浏览量增加成功'
     })
   } catch (err) {
     res.cc(err)
