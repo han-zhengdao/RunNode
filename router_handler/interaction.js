@@ -586,8 +586,6 @@ exports.report = async (req, res) => {
 }
 
 // 增加帖子浏览量
-// 1. 进入视口
-// 2. 点击进入详情
 exports.increaseViewCount = async (req, res) => {
   const { articleId } = req.params
   
@@ -600,6 +598,674 @@ exports.increaseViewCount = async (req, res) => {
       message: '浏览量增加成功'
     })
   } catch (err) {
+    res.cc(err)
+  }
+}
+
+// 获取用户获赞情况
+exports.getUserLikes = async (req, res) => {
+  const { pageNum = 1, pageSize = 10 } = req.query
+  const currentUserId = req.auth.id
+  
+  // 转换为数字类型
+  const page = parseInt(pageNum)
+  const size = parseInt(pageSize)
+  
+  try {
+    // 获取等级名称函数
+    const getLevelName = (level) => {
+      const levelNames = {
+        1: '深海窥屏鱼类',
+        2: '偶尔冒泡的锦鲤',
+        3: '冲鸭冲鸭冲鸭',
+        4: '永动机型话痨',
+        5: '人形自走热点',
+        6: '神龙见首不见尾的传说'
+      };
+      return levelNames[level] || '未知等级';
+    };
+
+    // 查询用户获赞总数
+    const [countResults] = await db.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM likes l WHERE l.post_id IN (SELECT id FROM posts WHERE user_id = ?) AND l.status = 1) +
+        (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id IN (SELECT id FROM comments WHERE user_id = ?) AND cl.status = 1) +
+        (SELECT COUNT(*) FROM reply_likes rl WHERE rl.reply_id IN (SELECT id FROM comment_replies WHERE user_id = ?) AND rl.status = 1)
+      as total
+    `, [currentUserId, currentUserId, currentUserId])
+    const total = countResults[0].total
+
+    // 查询帖子获赞情况
+    const postLikesSql = `
+      SELECT 
+        'post' as type,
+        l.created_at as like_time,
+        l.id as like_id,
+        u.id as liker_id,
+        u.nickname as liker_nickname,
+        u.avatar as liker_avatar,
+        u.level as liker_level,
+        p.id as target_id,
+        p.content as target_content,
+        p.created_at as target_created_at,
+        p.like_count as target_like_count,
+        p.comment_count as target_comment_count,
+        p.view_count as target_view_count,
+        c.name as category_name,
+        GROUP_CONCAT(pi.image_url) as image_urls
+      FROM likes l
+      LEFT JOIN users u ON l.user_id = u.id
+      LEFT JOIN posts p ON l.post_id = p.id
+      LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN post_images pi ON p.id = pi.post_id
+      WHERE p.user_id = ? AND l.status = 1
+      GROUP BY l.id
+    `
+
+    // 查询评论获赞情况
+    const commentLikesSql = `
+      SELECT 
+        'comment' as type,
+        cl.created_at as like_time,
+        cl.id as like_id,
+        u.id as liker_id,
+        u.nickname as liker_nickname,
+        u.avatar as liker_avatar,
+        u.level as liker_level,
+        c.id as target_id,
+        c.content as target_content,
+        c.created_at as target_created_at,
+        c.like_count as target_like_count,
+        c.reply_count as target_reply_count,
+        p.id as post_id,
+        p.content as post_content,
+        p.created_at as post_created_at,
+        cat.name as category_name
+      FROM comment_likes cl
+      LEFT JOIN users u ON cl.user_id = u.id
+      LEFT JOIN comments c ON cl.comment_id = c.id
+      LEFT JOIN posts p ON c.post_id = p.id
+      LEFT JOIN categories cat ON p.category_id = cat.id
+      WHERE c.user_id = ? AND cl.status = 1
+    `
+
+    // 查询回复获赞情况
+    const replyLikesSql = `
+      SELECT 
+        'reply' as type,
+        rl.created_at as like_time,
+        rl.id as like_id,
+        u.id as liker_id,
+        u.nickname as liker_nickname,
+        u.avatar as liker_avatar,
+        u.level as liker_level,
+        cr.id as target_id,
+        cr.content as target_content,
+        cr.created_at as target_created_at,
+        cr.like_count as target_like_count,
+        c.id as comment_id,
+        c.content as comment_content,
+        c.created_at as comment_created_at,
+        p.id as post_id,
+        p.content as post_content,
+        p.created_at as post_created_at,
+        cat.name as category_name
+      FROM reply_likes rl
+      LEFT JOIN users u ON rl.user_id = u.id
+      LEFT JOIN comment_replies cr ON rl.reply_id = cr.id
+      LEFT JOIN comments c ON cr.comment_id = c.id
+      LEFT JOIN posts p ON cr.post_id = p.id
+      LEFT JOIN categories cat ON p.category_id = cat.id
+      WHERE cr.user_id = ? AND rl.status = 1
+    `
+
+    // 执行三个查询
+    const [postLikes] = await db.query(postLikesSql, [currentUserId])
+    const [commentLikes] = await db.query(commentLikesSql, [currentUserId])
+    const [replyLikes] = await db.query(replyLikesSql, [currentUserId])
+
+    // 合并所有获赞记录并按时间排序
+    const allLikes = [...postLikes, ...commentLikes, ...replyLikes]
+      .sort((a, b) => new Date(b.like_time) - new Date(a.like_time))
+      .slice((page - 1) * size, page * size)
+
+    // 处理数据格式
+    const likeList = allLikes.map(like => {
+      const liker = {
+        id: like.liker_id,
+        nickname: like.liker_nickname,
+        avatar: like.liker_avatar,
+        level: like.liker_level,
+        levelName: getLevelName(like.liker_level)
+      }
+
+      const baseData = {
+        type: like.type,
+        likeId: like.like_id,
+        likeTime: like.like_time,
+        liker: liker
+      }
+
+      switch (like.type) {
+        case 'post':
+          return {
+            ...baseData,
+            target: {
+              id: like.target_id,
+              content: like.target_content,
+              createdAt: like.target_created_at,
+              likeCount: like.target_like_count,
+              commentCount: like.target_comment_count,
+              viewCount: like.target_view_count,
+              categoryName: like.category_name,
+              imageUrls: like.image_urls ? like.image_urls.split(',') : []
+            }
+          }
+        case 'comment':
+          return {
+            ...baseData,
+            target: {
+              id: like.target_id,
+              content: like.target_content,
+              createdAt: like.target_created_at,
+              likeCount: like.target_like_count,
+              replyCount: like.target_reply_count
+            },
+            post: {
+              id: like.post_id,
+              content: like.post_content,
+              createdAt: like.post_created_at,
+              categoryName: like.category_name
+            }
+          }
+        case 'reply':
+          return {
+            ...baseData,
+            target: {
+              id: like.target_id,
+              content: like.target_content,
+              createdAt: like.target_created_at,
+              likeCount: like.target_like_count
+            },
+            comment: {
+              id: like.comment_id,
+              content: like.comment_content,
+              createdAt: like.comment_created_at
+            },
+            post: {
+              id: like.post_id,
+              content: like.post_content,
+              createdAt: like.post_created_at,
+              categoryName: like.category_name
+            }
+          }
+        default:
+          return baseData
+      }
+    })
+
+    res.send({
+      status: 0,
+      message: '获取获赞情况成功',
+      data: {
+        total,
+        pagenum: page,
+        pagesize: size,
+        list: likeList
+      }
+    })
+  } catch (err) {
+    console.error('获取用户获赞情况失败:', err)
+    res.cc(err)
+  }
+}
+
+// 获取当前用户点赞情况
+exports.getMyLikes = async (req, res) => {
+  const { pageNum = 1, pageSize = 10 } = req.query
+  const currentUserId = req.auth.id
+  
+  // 转换为数字类型
+  const page = parseInt(pageNum)
+  const size = parseInt(pageSize)
+  
+  try {
+    // 获取等级名称函数
+    const getLevelName = (level) => {
+      const levelNames = {
+        1: '深海窥屏鱼类',
+        2: '偶尔冒泡的锦鲤',
+        3: '冲鸭冲鸭冲鸭',
+        4: '永动机型话痨',
+        5: '人形自走热点',
+        6: '神龙见首不见尾的传说'
+      };
+      return levelNames[level] || '未知等级';
+    };
+
+    // 查询当前用户点赞总数
+    const [countResults] = await db.query(`
+            SELECT 
+        (SELECT COUNT(*) FROM likes WHERE user_id = ? AND status = 1) +
+        (SELECT COUNT(*) FROM comment_likes WHERE user_id = ? AND status = 1) +
+        (SELECT COUNT(*) FROM reply_likes WHERE user_id = ? AND status = 1)
+      as total
+    `, [currentUserId, currentUserId, currentUserId])
+    const total = countResults[0].total
+
+    // 查询帖子点赞情况
+    const postLikesSql = `
+      SELECT 
+        'post' as type,
+        l.created_at as like_time,
+        l.id as like_id,
+        p.id as target_id,
+        p.content as target_content,
+        p.created_at as target_created_at,
+        p.like_count as target_like_count,
+        p.comment_count as target_comment_count,
+        p.view_count as target_view_count,
+        c.name as category_name,
+        GROUP_CONCAT(pi.image_url) as image_urls,
+        u.id as author_id,
+        u.nickname as author_nickname,
+        u.avatar as author_avatar,
+        u.level as author_level
+      FROM likes l
+      LEFT JOIN posts p ON l.post_id = p.id
+      LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN post_images pi ON p.id = pi.post_id
+      LEFT JOIN users u ON p.user_id = u.id
+      WHERE l.user_id = ? AND l.status = 1
+      GROUP BY l.id
+    `
+
+    // 查询评论点赞情况
+    const commentLikesSql = `
+      SELECT 
+        'comment' as type,
+        cl.created_at as like_time,
+        cl.id as like_id,
+        c.id as target_id,
+        c.content as target_content,
+        c.created_at as target_created_at,
+        c.like_count as target_like_count,
+        c.reply_count as target_reply_count,
+        p.id as post_id,
+        p.content as post_content,
+        p.created_at as post_created_at,
+        cat.name as category_name,
+        u.id as author_id,
+        u.nickname as author_nickname,
+        u.avatar as author_avatar,
+        u.level as author_level
+      FROM comment_likes cl
+      LEFT JOIN comments c ON cl.comment_id = c.id
+      LEFT JOIN posts p ON c.post_id = p.id
+      LEFT JOIN categories cat ON p.category_id = cat.id
+      LEFT JOIN users u ON c.user_id = u.id
+      WHERE cl.user_id = ? AND cl.status = 1
+    `
+
+    // 查询回复点赞情况
+    const replyLikesSql = `
+      SELECT 
+        'reply' as type,
+        rl.created_at as like_time,
+        rl.id as like_id,
+        cr.id as target_id,
+        cr.content as target_content,
+        cr.created_at as target_created_at,
+        cr.like_count as target_like_count,
+        c.id as comment_id,
+        c.content as comment_content,
+        c.created_at as comment_created_at,
+        p.id as post_id,
+        p.content as post_content,
+        p.created_at as post_created_at,
+        cat.name as category_name,
+        u.id as author_id,
+        u.nickname as author_nickname,
+        u.avatar as author_avatar,
+        u.level as author_level
+      FROM reply_likes rl
+      LEFT JOIN comment_replies cr ON rl.reply_id = cr.id
+      LEFT JOIN comments c ON cr.comment_id = c.id
+      LEFT JOIN posts p ON cr.post_id = p.id
+      LEFT JOIN categories cat ON p.category_id = cat.id
+      LEFT JOIN users u ON cr.user_id = u.id
+      WHERE rl.user_id = ? AND rl.status = 1
+    `
+
+    // 执行三个查询
+    const [postLikes] = await db.query(postLikesSql, [currentUserId])
+    const [commentLikes] = await db.query(commentLikesSql, [currentUserId])
+    const [replyLikes] = await db.query(replyLikesSql, [currentUserId])
+
+    // 合并所有点赞记录并按时间排序
+    const allLikes = [...postLikes, ...commentLikes, ...replyLikes]
+      .sort((a, b) => new Date(b.like_time) - new Date(a.like_time))
+      .slice((page - 1) * size, page * size)
+
+    // 处理数据格式
+    const likeList = allLikes.map(like => {
+      const author = {
+        id: like.author_id,
+        nickname: like.author_nickname,
+        avatar: like.author_avatar,
+        level: like.author_level,
+        levelName: getLevelName(like.author_level)
+      }
+
+      const baseData = {
+        type: like.type,
+        likeId: like.like_id,
+        likeTime: like.like_time,
+        author: author
+      }
+
+      switch (like.type) {
+        case 'post':
+          return {
+            ...baseData,
+            target: {
+              id: like.target_id,
+              content: like.target_content,
+              createdAt: like.target_created_at,
+              likeCount: like.target_like_count,
+              commentCount: like.target_comment_count,
+              viewCount: like.target_view_count,
+              categoryName: like.category_name,
+              imageUrls: like.image_urls ? like.image_urls.split(',') : []
+            }
+          }
+        case 'comment':
+          return {
+            ...baseData,
+            target: {
+              id: like.target_id,
+              content: like.target_content,
+              createdAt: like.target_created_at,
+              likeCount: like.target_like_count,
+              replyCount: like.target_reply_count
+            },
+            post: {
+              id: like.post_id,
+              content: like.post_content,
+              createdAt: like.post_created_at,
+              categoryName: like.category_name
+            }
+          }
+        case 'reply':
+          return {
+            ...baseData,
+            target: {
+              id: like.target_id,
+              content: like.target_content,
+              createdAt: like.target_created_at,
+              likeCount: like.target_like_count
+            },
+            comment: {
+              id: like.comment_id,
+              content: like.comment_content,
+              createdAt: like.comment_created_at
+            },
+            post: {
+              id: like.post_id,
+              content: like.post_content,
+              createdAt: like.post_created_at,
+              categoryName: like.category_name
+            }
+          }
+        default:
+          return baseData
+      }
+    })
+
+    res.send({
+      status: 0,
+      message: '获取点赞情况成功',
+      data: {
+        total,
+        pagenum: page,
+        pagesize: size,
+        list: likeList
+      }
+    })
+  } catch (err) {
+    console.error('获取当前用户点赞情况失败:', err)
+    res.cc(err)
+  }
+}
+
+// 获取当前用户评论和回复
+exports.getMyComments = async (req, res) => {
+  const { pageNum = 1, pageSize = 10 } = req.query
+  const currentUserId = req.auth.id
+  
+  // 转换为数字类型
+  const page = parseInt(pageNum)
+  const size = parseInt(pageSize)
+  
+  try {
+    // 获取等级名称函数
+    const getLevelName = (level) => {
+      const levelNames = {
+        1: '深海窥屏鱼类',
+        2: '偶尔冒泡的锦鲤',
+        3: '冲鸭冲鸭冲鸭',
+        4: '永动机型话痨',
+        5: '人形自走热点',
+        6: '神龙见首不见尾的传说'
+      };
+      return levelNames[level] || '未知等级';
+    };
+
+    // 查询当前用户评论和回复总数
+    const [countResults] = await db.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM comments WHERE user_id = ?) +
+        (SELECT COUNT(*) FROM comment_replies WHERE user_id = ?)
+      as total
+    `, [currentUserId, currentUserId])
+    const total = countResults[0].total
+
+    // 查询评论情况
+    const commentsSql = `
+      SELECT 
+        'comment' as type,
+        c.id as target_id,
+        c.content as target_content,
+        c.created_at as target_created_at,
+        c.like_count as target_like_count,
+        c.reply_count as target_reply_count,
+        p.id as post_id,
+        p.content as post_content,
+        p.created_at as post_created_at,
+        p.like_count as post_like_count,
+        p.comment_count as post_comment_count,
+        p.view_count as post_view_count,
+        cat.name as category_name,
+        GROUP_CONCAT(pi.image_url) as image_urls,
+        u.id as author_id,
+        u.nickname as author_nickname,
+        u.avatar as author_avatar,
+        u.level as author_level
+      FROM comments c
+      LEFT JOIN posts p ON c.post_id = p.id
+      LEFT JOIN categories cat ON p.category_id = cat.id
+      LEFT JOIN post_images pi ON p.id = pi.post_id
+      LEFT JOIN users u ON p.user_id = u.id
+      WHERE c.user_id = ?
+      GROUP BY c.id
+    `
+
+    // 查询回复情况
+    const repliesSql = `
+      SELECT 
+        'reply' as type,
+        cr.id as target_id,
+        cr.content as target_content,
+        cr.created_at as target_created_at,
+        cr.like_count as target_like_count,
+        c.id as comment_id,
+        c.content as comment_content,
+        c.created_at as comment_created_at,
+        c.like_count as comment_like_count,
+        c.reply_count as comment_reply_count,
+        p.id as post_id,
+        p.content as post_content,
+        p.created_at as post_created_at,
+        p.like_count as post_like_count,
+        p.comment_count as post_comment_count,
+        p.view_count as post_view_count,
+        cat.name as category_name,
+        GROUP_CONCAT(pi.image_url) as image_urls,
+        u.id as author_id,
+        u.nickname as author_nickname,
+        u.avatar as author_avatar,
+        u.level as author_level
+      FROM comment_replies cr
+      LEFT JOIN comments c ON cr.comment_id = c.id
+      LEFT JOIN posts p ON cr.post_id = p.id
+      LEFT JOIN categories cat ON p.category_id = cat.id
+      LEFT JOIN post_images pi ON p.id = pi.post_id
+      LEFT JOIN users u ON p.user_id = u.id
+      WHERE cr.user_id = ?
+      GROUP BY cr.id
+    `
+
+    // 执行两个查询
+    const [comments] = await db.query(commentsSql, [currentUserId])
+    const [replies] = await db.query(repliesSql, [currentUserId])
+
+    // 合并所有评论和回复记录并按时间排序
+    const allComments = [...comments, ...replies]
+      .sort((a, b) => new Date(b.target_created_at) - new Date(a.target_created_at))
+      .slice((page - 1) * size, page * size)
+
+    // 处理数据格式
+    const commentList = allComments.map(item => {
+      const author = {
+        id: item.author_id,
+        nickname: item.author_nickname,
+        avatar: item.author_avatar,
+        level: item.author_level,
+        levelName: getLevelName(item.author_level)
+      }
+
+      const baseData = {
+        type: item.type,
+        author: author
+      }
+
+      switch (item.type) {
+        case 'comment':
+          return {
+            ...baseData,
+            target: {
+              id: item.target_id,
+              content: item.target_content,
+              createdAt: item.target_created_at,
+              likeCount: item.target_like_count,
+              replyCount: item.target_reply_count
+            },
+            post: {
+              id: item.post_id,
+              content: item.post_content,
+              createdAt: item.post_created_at,
+              likeCount: item.post_like_count,
+              commentCount: item.post_comment_count,
+              viewCount: item.post_view_count,
+              categoryName: item.category_name,
+              imageUrls: item.image_urls ? item.image_urls.split(',') : []
+            }
+          }
+        case 'reply':
+          return {
+            ...baseData,
+            target: {
+              id: item.target_id,
+              content: item.target_content,
+              createdAt: item.target_created_at,
+              likeCount: item.target_like_count
+            },
+            comment: {
+              id: item.comment_id,
+              content: item.comment_content,
+              createdAt: item.comment_created_at,
+              likeCount: item.comment_like_count,
+              replyCount: item.comment_reply_count
+            },
+            post: {
+              id: item.post_id,
+              content: item.post_content,
+              createdAt: item.post_created_at,
+              likeCount: item.post_like_count,
+              commentCount: item.post_comment_count,
+              viewCount: item.post_view_count,
+              categoryName: item.category_name,
+              imageUrls: item.image_urls ? item.image_urls.split(',') : []
+            }
+          }
+        default:
+          return baseData
+      }
+    })
+        
+        res.send({
+            status: 0,
+      message: '获取评论和回复成功',
+      data: {
+        total,
+        pagenum: page,
+        pagesize: size,
+        list: commentList
+      }
+    })
+    } catch (err) {
+    console.error('获取当前用户评论和回复失败:', err)
+    res.cc(err)
+  }
+}
+
+// 提交意见反馈
+exports.submitFeedback = async (req, res) => {
+  const { type, title, content, contact_info } = req.body
+  const userId = req.auth.id
+  
+  try {
+    // 获取反馈类型名称
+    const getTypeName = (type) => {
+      const typeNames = {
+        1: '功能建议',
+        2: '界面优化',
+        3: '内容问题',
+        4: '性能问题',
+        5: '其他'
+      };
+      return typeNames[type] || '未知类型';
+    };
+
+    // 插入反馈记录
+    const sql = 'INSERT INTO feedbacks (user_id, type, type_name, title, content, contact_info, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, NOW())'
+    const [results] = await db.query(sql, [userId, type, getTypeName(type), title, content, contact_info || null])
+    
+    res.send({
+      status: 0,
+      message: '意见反馈提交成功，感谢您的建议！',
+      data: { 
+        feedbackId: results.insertId,
+        type: type,
+        typeName: getTypeName(type),
+        title,
+        content,
+        contact_info,
+        createdAt: new Date()
+      }
+    })
+  } catch (err) {
+    console.error('提交意见反馈失败:', err)
     res.cc(err)
   }
 }

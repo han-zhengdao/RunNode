@@ -17,7 +17,7 @@ const pageSize = joi.number().integer().min(1).max(100).default(10)
 const id = joi.number().integer().min(1).required()
 
 // 定义发布文章的数据验证模块
-exports.add_article_schema = {
+const add_article_schema = {
     body: {
         content,
         cate_id,
@@ -27,7 +27,7 @@ exports.add_article_schema = {
 }
 
 // 定义获取文章列表的数据验证模块
-exports.get_article_list_schema = {
+const get_article_list_schema = {
     query: {
         pageNum,
         pageSize,
@@ -37,10 +37,52 @@ exports.get_article_list_schema = {
 }
 
 // 定义获取文章详情的数据验证模块
-exports.get_article_detail_schema = {
+const get_article_detail_schema = {
     params: {
         id
     }
+}
+
+// 获取我的文章列表的验证规则
+const get_my_articles_schema = {
+  query: {
+    pageNum: joi.number().integer().min(1).default(1),
+    pageSize: joi.number().integer().min(1).max(50).default(10),
+    state: joi.string().valid('已发布', '草稿').optional()
+  }
+}
+
+// 修改文章的验证规则
+const update_article_schema = {
+  body: {
+    content: joi.string().min(1).max(10000).required(),
+    category_id: joi.number().integer().min(1).required(),
+    state: joi.string().valid('已发布', '草稿').required()
+  }
+}
+
+// 删除文章的验证规则
+const delete_article_schema = {
+  params: {
+    id: joi.number().integer().min(1).required()
+  }
+}
+
+// 获取文章详情（用于编辑）的验证规则
+const get_article_for_edit_schema = {
+  params: {
+    id: joi.number().integer().min(1).required()
+  }
+}
+
+module.exports = {
+  add_article_schema,
+  get_article_list_schema,
+  get_article_detail_schema,
+  get_my_articles_schema,
+  update_article_schema,
+  delete_article_schema,
+  get_article_for_edit_schema
 }
 
 

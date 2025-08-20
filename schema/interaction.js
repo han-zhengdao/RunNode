@@ -103,6 +103,40 @@ const report_schema = {
   }
 }
 
+// 获取用户获赞情况的验证规则
+const get_user_likes_schema = {
+  query: {
+    pageNum: joi.number().integer().min(1).default(1),
+    pageSize: joi.number().integer().min(1).max(50).default(10)
+  }
+}
+
+// 获取当前用户点赞情况的验证规则
+const get_my_likes_schema = {
+  query: {
+    pageNum: joi.number().integer().min(1).default(1),
+    pageSize: joi.number().integer().min(1).max(50).default(10)
+  }
+}
+
+// 获取当前用户评论和回复的验证规则
+const get_my_comments_schema = {
+  query: {
+    pageNum: joi.number().integer().min(1).default(1),
+    pageSize: joi.number().integer().min(1).max(50).default(10)
+  }
+}
+
+// 意见反馈的验证规则
+const feedback_schema = {
+  body: {
+    type: joi.number().integer().valid(1, 2, 3, 4, 5).required(), // 1-功能建议，2-界面优化，3-内容问题，4-性能问题，5-其他
+    title: joi.string().min(1).max(100).required(),
+    content: joi.string().min(1).max(2000).required(),
+    contact_info: joi.string().max(100).optional() // 联系方式，可选
+  }
+}
+
 module.exports = {
   create_comment_schema,
   get_comments_schema,
@@ -116,5 +150,9 @@ module.exports = {
   get_following_schema,
   get_followers_schema,
   get_follow_status_schema,
-  report_schema
+  report_schema,
+  get_user_likes_schema,
+  get_my_likes_schema,
+  get_my_comments_schema,
+  feedback_schema
 }

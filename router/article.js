@@ -5,7 +5,7 @@ const router = express.Router()
 // 导入数据验证模块
 const expressJoi = require('@escook/express-joi')
 // 导入文章数据验证模块
-const { add_article_schema, get_article_list_schema, get_article_detail_schema } = require('../schema/article')
+const { add_article_schema, get_article_list_schema, get_article_detail_schema, get_my_articles_schema, get_article_for_edit_schema, update_article_schema, delete_article_schema } = require('../schema/article')
 
 // 导入发布文章处理模块
 const article_handler = require('../router_handler/article')
@@ -41,6 +41,17 @@ router.get('/getlist', expressJoi(get_article_list_schema), article_handler.getA
 // 获取文章详情
 router.get('/detail/:id', expressJoi(get_article_detail_schema), article_handler.getArticleDetail)
 
+// 获取我的文章列表
+router.get('/my', expressJoi(get_my_articles_schema), article_handler.getMyArticles)
+
+// 获取文章详情（用于编辑）
+router.get('/edit/:id', expressJoi(get_article_for_edit_schema), article_handler.getArticleForEdit)
+
+// 修改文章
+router.put('/:id', expressJoi(update_article_schema), article_handler.updateArticle)
+
+// 删除文章
+router.delete('/:id', expressJoi(delete_article_schema), article_handler.deleteArticle)
 
 // 导出路由模块
 module.exports = router

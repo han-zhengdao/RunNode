@@ -13,8 +13,5 @@ router.post('/users', userHandler.register);
 // 创建tonken刷新路由
 router.post('/refreshToken', userHandler.refreshToken);
 
-
-
-
 // 导出路由对象
 module.exports = router;
