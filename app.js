@@ -107,6 +107,6 @@ schedule.scheduleJob('0 3 * * *', () => {
 })
 
 // 监听端口
-app.listen(3001, () => {
-    console.log('服务器已启动 http://localhost:3001')
+app.listen(3000,'127.0.0.1', () => {
+    console.log('API 服务已启动：http://127.0.0.1:3000')
 })

@@ -3,9 +3,9 @@ const mysql = require('mysql2/promise');
 
 // 创建数据库连接对象
 const db = mysql.createPool({
-    host: '127.0.0.1',
-    user: 'root',
-    password: '123456',
+    host: '117.72.213.251',
+    user: 'rundata',
+    password: 'hanzhengdao526.*',
     database: 'rundata'
 })
 
